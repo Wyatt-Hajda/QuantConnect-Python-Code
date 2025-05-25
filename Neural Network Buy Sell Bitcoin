@@ -1,0 +1,62 @@
+from AlgorithmImports import *
+import numpy as np
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+from tensorflow.keras.optimizers import Adam
+
+class NeuralNetCryptoTrader(QCAlgorithm):
+    def CreateModel(self):
+        model = Sequential()
+        model.add(Dense(32, input_dim=self.lookback, activation='relu'))
+        model.add(Dropout(0.3))
+        model.add(Dense(16, activation='relu'))
+        model.add(Dense(1, activation='sigmoid'))
+        model.compile(optimizer=Adam(0.001), loss='binary_crossentropy')
+        return model
+
+    def Initialize(self):
+        self.SetStartDate(2023, 1, 1)
+        self.SetEndDate(2025, 1, 1)
+        self.SetCash(1000)
+        self.symbol = self.AddCrypto("BTCUSD", Resolution.Hour).Symbol
+        self.lookback = 24
+        self.prices = []
+        self.last_train_time = self.Time
+        self.train_interval = timedelta(days=1)
+        self.model = self.CreateModel()
+
+    def OnData(self, data):
+        if not data.ContainsKey(self.symbol) or data[self.symbol] is None:
+            return
+        
+        self.prices.append(data[self.symbol].Close)
+
+        if len(self.prices) < self.lookback + 2:
+            return
+
+        X, y = self.CreateFeaturesAndLabels(self.prices[:-1])
+
+        if self.Time - self.last_train_time > self.train_interval and len(X) > 10:
+            self.model.fit(np.array(X), np.array(y), epochs=5, verbose=0)
+            self.last_train_time = self.Time
+
+        if len(X) > 0:
+            input_sample = np.array(X[-1]).reshape(1, -1)
+            prediction = self.model.predict(input_sample, verbose=0)[0][0]
+
+            if prediction > 0.6:
+                self.SetHoldings(self.symbol, 1)
+            elif prediction < 0.4:
+                self.Liquidate(self.symbol)
+
+        if len(self.prices) > 500:
+            self.prices = self.prices[-300:]
+
+    def CreateFeaturesAndLabels(self, prices):
+        returns = np.diff(np.log(prices))
+        X, y = [], []
+        for i in range(len(returns) - self.lookback):
+            X.append(returns[i:i + self.lookback])
+            y.append(1 if returns[i + self.lookback] > 0 else 0)  # Match y size to X
+
+        return X, y
