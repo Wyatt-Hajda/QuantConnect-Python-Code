@@ -1,0 +1,35 @@
+from AlgorithmImports import *
+
+class SimpleBitcoinStrategy(QCAlgorithm):
+    def Initialize(self):
+        # Strategy Parameters
+        self.fast_ma_period = self.GetParameter("fast_ma_period") or 10
+        self.slow_ma_period = self.GetParameter("slow_ma_period") or 50
+        self.initial_cash = float(self.GetParameter("initial_cash") or 1000)
+
+        # Backtest Setup
+        self.SetStartDate(2024, 1, 1)
+        self.SetEndDate(2025, 1, 1)
+        self.SetCash(self.initial_cash)
+        self.SetBrokerageModel(BrokerageName.GDAX, AccountType.Cash)
+
+        # Asset and Indicators
+        self.symbol = self.AddCrypto("BTCUSD", Resolution.Daily).Symbol
+        self.fast_ma = self.EMA(self.symbol, self.fast_ma_period, Resolution.Daily)
+        self.slow_ma = self.EMA(self.symbol, self.slow_ma_period, Resolution.Daily)
+
+        self.previous_position = None
+
+    def OnData(self, data):
+        if not self.fast_ma.IsReady or not self.slow_ma.IsReady:
+            return
+        
+        # Entry Signal: Fast EMA crosses above Slow EMA
+        if self.previous_position != "long" and self.fast_ma.Current.Value > self.slow_ma.Current.Value:
+            self.SetHoldings(self.symbol, 1.0)  
+            self.previous_position = "long"
+        
+        # Exit Signal: Fast EMA crosses below Slow EMA
+        elif self.previous_position != "short" and self.fast_ma.Current.Value < self.slow_ma.Current.Value:
+            self.Liquidate(self.symbol)
+            self.previous_position = "short"
